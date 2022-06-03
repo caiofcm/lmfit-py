@@ -72,6 +72,14 @@ try:
 except ImportError:
     HAS_DILL = False
 
+# check for EMCEE
+try:
+    from pyswarms.single.global_best import GlobalBestPSO
+    HAS_PYSWARMS = int(pyswarms.__version__[0]) >= 1
+except ImportError:
+    HAS_PYSWARMS = False
+
+
 
 # define the namedtuple here so pickle will work with the MinimizerResult
 Candidate = namedtuple('Candidate', ['params', 'score'])
@@ -645,17 +653,54 @@ class Minimizer:
             sum-of-squares, but can be replaced by other options.
 
         """
-        if self.result.method in ['brute', 'shgo', 'dual_annealing']:
+        if self.result.method in ['brute', 'shgo', 'dual_annealing', 'particle_swarm']:
             apply_bounds_transformation = False
         else:
             apply_bounds_transformation = True
 
         r = self.__residual(fvars, apply_bounds_transformation)
+
         if isinstance(r, np.ndarray) and r.size > 1:
             r = self.reduce_fcn(r)
             if isinstance(r, np.ndarray) and r.size > 1:
                 r = r.sum()
         return r
+
+
+    def penalty_particle_swarm(self, fvars):
+        """Penalty function for scalar minimizers.
+
+        Parameters
+        ----------
+        fvars : numpy.ndarray
+            Array of values for the variable parameters.
+
+        Returns
+        -------
+        r : float
+            The evaluated user-supplied objective function.
+
+            If the objective function is an array of size greater than 1,
+            use the scalar returned by `self.reduce_fcn`. This defaults to
+            sum-of-squares, but can be replaced by other options.
+
+        """
+
+        r_0 = np.asarray(self.__residual(fvars[0,:], False))
+        r = np.empty((fvars.shape[0], r_0.shape[0]))
+        r[0] = r_0
+        for i in range(1, fvars.shape[0]):
+            r[i] = self.__residual(fvars[i,:], False)
+
+        if isinstance(r, np.ndarray) and r.shape[1] > 1:
+            r_reduced = np.empty(fvars.shape[0])
+            for i in range(r.shape[0]):
+                r_reduced[i] = self.reduce_fcn(r[i,:])
+            r = r_reduced
+            # if isinstance(r, np.ndarray) and r.shape[1] > 1:
+            #     r = r.sum()
+        return np.squeeze(r)
+
 
     def prepare_fit(self, params=None):
         """Prepare parameters for fitting.
@@ -2189,7 +2234,8 @@ class Minimizer:
             Maximum number of function evaluations. Defaults to
             ``200000*(nvars+1)``, where ``nvars`` is the number of variables.
         **kws : dict, optional
-            Minimizer options to pass to the dual_annealing algorithm.
+            Minimizer options to pass to the particle_swarm algorithm.
+            - 
 
         Returns
         -------
@@ -2251,6 +2297,71 @@ class Minimizer:
 
         return result
 
+    def particle_swarm(self, params=None, max_nfev=None, **kws):
+        """Use the `particle swarm` algorithm from `pyswarms` package to find the global minimum.
+
+        TODO
+
+        """
+        if not HAS_PYSWARMS:
+            raise NotImplementedError('pyswarms version 1 is required.')
+
+        result = self.prepare_fit(params=params)
+        result.method = 'particle_swarm'
+        self.set_max_nfev(max_nfev, 10000000*(result.nvarys+1))
+
+        varying = np.asarray([par.vary for par in self.params.values()])
+        bounds = (
+                np.asarray([par.min for par in self.params.values()])[varying],
+                np.asarray([par.max for par in self.params.values()])[varying],
+        )
+
+        iters = kws.pop('iters', 10000)
+        n_particles = kws.pop('n_particles', 32)
+
+        ps_kws = dict(
+            options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
+            n_particles=n_particles,
+            dimensions=result.nvarys,
+            bounds=bounds,
+        )
+
+        ps_kws.update(self.kws)
+        ps_kws.update(kws)
+
+
+        if not np.all(np.isfinite(bounds)):
+            raise ValueError('particle_swarm requires finite bounds for all'
+                             ' varying parameters')
+        result.call_kws = ps_kws
+        try:
+            optimizer = GlobalBestPSO(**ps_kws)
+            cost, pos = optimizer.optimize(self.penalty_particle_swarm, iters)
+        except AbortFitException:
+            pass
+
+        if not result.aborted:
+            result.pso_pos = pos
+            result.pso_cost = cost
+
+            for i, par in enumerate(result.var_names):
+                result.params[par].value = pos[i]
+
+            result.residual = self.__residual(pos, False)
+            result.nfev -= 1
+
+        result._calculate_statistics()
+
+        # calculate the cov_x and estimate uncertainties/correlations
+        if (not result.aborted and self.calc_covar and HAS_NUMDIFFTOOLS and
+                len(result.residual) > len(result.var_names)):
+            _covar_ndt = self._calculate_covariance_matrix(result.pso_pos)
+            if _covar_ndt is not None:
+                result.covar = self._int2ext_cov_x(_covar_ndt, result.pso_pos)
+                self._calculate_uncertainties_correlations()
+
+        return result
+
     def minimize(self, method='leastsq', params=None, **kws):
         """Perform the minimization.
 
@@ -2284,6 +2395,7 @@ class Minimizer:
             - `'emcee'`: Maximum likelihood via Monte-Carlo Markov Chain
             - `'shgo'`: Simplicial Homology Global Optimization
             - `'dual_annealing'`: Dual Annealing optimization
+            - `'particle_swarm'`: Particle Swarm optimization
 
             In most cases, these methods wrap and use the method with the
             same name from `scipy.optimize`, or use
@@ -2323,6 +2435,10 @@ class Minimizer:
 
         kwargs.update(kws)
 
+        # if callable(method):
+        #     function = method
+        #     return function(**kwargs)
+
         user_method = method.lower()
         if user_method.startswith('leasts'):
             function = self.leastsq
@@ -2340,6 +2456,8 @@ class Minimizer:
             function = self.shgo
         elif user_method == 'dual_annealing':
             function = self.dual_annealing
+        elif user_method == 'particle_swarm':
+            function = self.particle_swarm
         else:
             function = self.scalar_minimize
             for key, val in SCALAR_METHODS.items():
