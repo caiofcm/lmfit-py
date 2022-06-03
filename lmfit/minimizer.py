@@ -74,6 +74,7 @@ except ImportError:
 
 # check for EMCEE
 try:
+    import pyswarms
     from pyswarms.single.global_best import GlobalBestPSO
     HAS_PYSWARMS = int(pyswarms.__version__[0]) >= 1
 except ImportError:
