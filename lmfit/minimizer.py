@@ -2318,11 +2318,12 @@ class Minimizer:
         )
 
         iters = kws.pop('iters', 10000)
-        n_particles = kws.pop('n_particles', 32)
+        # n_particles = kws.pop('n_particles', 32)
+        n_processes = kws.pop('n_processes', None)
 
         ps_kws = dict(
             options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
-            n_particles=n_particles,
+            n_particles=32,
             dimensions=result.nvarys,
             bounds=bounds,
         )
@@ -2337,7 +2338,9 @@ class Minimizer:
         result.call_kws = ps_kws
         try:
             optimizer = GlobalBestPSO(**ps_kws)
-            cost, pos = optimizer.optimize(self.penalty_particle_swarm, iters)
+            cost, pos = optimizer.optimize(self.penalty_particle_swarm, iters, 
+                n_processes=n_processes
+            )
         except AbortFitException:
             pass
 

@@ -16,6 +16,14 @@ for fnc_name in ('erf', 'erfc', 'wofz'):
     SCIPY_FUNCTIONS[fnc_name] = getattr(scipy.special, fnc_name)
 
 
+# check for pandas
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+
+
 def check_ast_errors(expr_eval):
     """Check for errors derived from asteval."""
     if len(expr_eval.error) > 0:
@@ -521,6 +529,24 @@ class Parameters(dict):
 
         """
         return self.loads(fp.read(), **kws)
+
+    def to_dataframe(self):
+        if not HAS_PANDAS:
+            raise NotImplementedError("Pandas is not installed.")
+        else:
+            list_dict_param = [
+            {
+                'name': param.name,
+                'value': param.value,
+                'min': param.min,
+                'max': param.max,
+                'vary': param.vary,
+                'initial_value': param.init_value,
+            }
+                for param in self.values()
+            ]
+            df_param = pd.DataFrame.from_records(list_dict_param, index='name')
+            return df_param
 
 
 class Parameter:
