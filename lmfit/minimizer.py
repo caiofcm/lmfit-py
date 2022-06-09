@@ -2317,9 +2317,8 @@ class Minimizer:
                 np.asarray([par.max for par in self.params.values()])[varying],
         )
 
-        iters = kws.pop('iters', 10000)
-        # n_particles = kws.pop('n_particles', 32)
-        n_processes = kws.pop('n_processes', None)
+        opt_args = kws.pop('opt_args', {'iters': 1000})
+        opt_args['iters'] = opt_args.get('iters', 1000)
 
         ps_kws = dict(
             options={'c1': 0.5, 'c2': 0.3, 'w': 0.9},
@@ -2331,16 +2330,13 @@ class Minimizer:
         ps_kws.update(self.kws)
         ps_kws.update(kws)
 
-
         if not np.all(np.isfinite(bounds)):
             raise ValueError('particle_swarm requires finite bounds for all'
                              ' varying parameters')
         result.call_kws = ps_kws
         try:
             optimizer = GlobalBestPSO(**ps_kws)
-            cost, pos = optimizer.optimize(self.penalty_particle_swarm, iters, 
-                n_processes=n_processes
-            )
+            cost, pos = optimizer.optimize(self.penalty_particle_swarm, **opt_args)
         except AbortFitException:
             pass
 

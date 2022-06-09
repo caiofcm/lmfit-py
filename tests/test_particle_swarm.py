@@ -50,10 +50,14 @@ def test_pso_pyswarms_vs_lmfit():
     # lmfit with pyswarms
     np.random.seed(42)
 
+    opt_args = dict(
+        iters=iters,
+    )
+
     pars = lmfit.Parameters()
     pars.add_many(('x0', 0, True, -512, 512), ('x1', 0, True, -512, 512))
     mini = lmfit.Minimizer(eggholder_lmfit, pars, options=options)
-    result = mini.minimize(method='particle_swarm', n_particles=n_particles, iters=iters)
+    result = mini.minimize(method='particle_swarm', n_particles=n_particles, opt_args=opt_args)
     out_x = np.array([result.params['x0'].value, result.params['x1'].value])
 
     assert_allclose(cost_pyswarms, result.residual)
