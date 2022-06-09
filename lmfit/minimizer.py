@@ -740,7 +740,9 @@ class Minimizer:
         result = self.result
         if params is not None:
             self.params = params
-        if isinstance(self.params, Parameters):
+        # if isinstance(self.params, Parameters):
+        #     result.params = deepcopy(self.params)
+        if hasattr(self.params, 'update_constraints'): #workaround for using cfcm parameter. To be updated in the fork!
             result.params = deepcopy(self.params)
         elif isinstance(self.params, (list, tuple)):
             result.params = Parameters()
